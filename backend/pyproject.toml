@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dmf-backend"
+version = "1.0.0"
+description = "DMF workpiece tracking dashboard — backend (FastAPI, read-only OPC UA, tracker)"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.162.5",
+  "starlette==1.10.0",  # explicit: fixes the starlette advisories reported by pip-audit for 0.41.x
+  "uvicorn[standard]==0.32.1",
+  "asyncua==1.1.5",
+  "SQLAlchemy[asyncio]==2.0.36",
+  "asyncpg==0.30.0",
+  "alembic==1.14.0",
+  "pydantic==2.10.3",
+  "pydantic-settings==2.6.1",
+  "PyYAML==6.0.2",
+  "reportlab==4.2.5",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==8.3.4",
+  "pytest-asyncio==0.24.0",
+  "pytest-timeout==2.3.1",
+  "pytest-cov==7.1.0",
+  "httpx==0.28.1",
+  "ruff==0.8.3",
+]
+
+[tool.setuptools.packages.find]
+include = ["dmf*"]
+
+[tool.coverage.run]
+source = ["dmf", "dmf_mock"]
+branch = true
+
+[tool.coverage.report]
+skip_empty = true
+show_missing = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+timeout = 120
+markers = [
+  "db: needs PostgreSQL (TEST_DATABASE_URL)",
+  "opcua: starts a local mock OPC UA server",
+]
+filterwarnings = [
+  "ignore::DeprecationWarning:websockets.*",
+  "ignore::DeprecationWarning:uvicorn.*",
+  "ignore::DeprecationWarning:reportlab.*",
+]
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "S"]
+# S101 asserts in tests, S311 non-crypto random (mock/jitter), B008 FastAPI defaults,
+# ASYNC109/110 deliberate timeout parameters and short polling loops, UP038 (deprecated rule)
+ignore = ["S101", "S311", "B008", "ASYNC109", "ASYNC110", "UP038"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "B"]
+"../database/migrations/versions/*" = ["E501"]

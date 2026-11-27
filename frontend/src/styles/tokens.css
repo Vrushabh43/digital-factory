@@ -1,0 +1,52 @@
+/* Design tokens taken from the "Team 11 DMF – Dashboard v2 (blueprint layout)" frames. */
+:root {
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --bg: #f3f4f6;
+  --surface: #ffffff;
+  --surface-muted: #f3f4f6;
+  --border: #e2e5ea;
+  --border-strong: #cdd2d9;
+  --text: #111827;
+  --text-muted: #5b6472;
+  --text-faint: #646c77; /* 4.8:1 on --bg (was #8a929c, 2.9:1) */
+  --header-bg: #111a2e;
+  --header-text: #e5e7eb;
+  --link: #1d4ed8;
+  --focus: #2563eb; /* keyboard focus ring (blue, offset) */
+  --selected: #111827; /* selected cell ring (near-black, tight) - never the same as focus */
+  --primary: #111a2e;
+  --primary-text: #ffffff;
+  --accent: #1d4ed8;
+
+  --running-bg: #e8f3ec;
+  --running-border: #3d8b5c;
+  --running-solid: #2e7d4f;
+  --running-text: #1f5c39;
+
+  --stuck-bg: #fdf3d7;
+  --stuck-border: #c98a06;
+  --stuck-solid: #8f5e0f; /* white text 5.6:1 (was #b7791f, 3.6:1) */
+  --stuck-text: #7a5300;
+
+  --error-bg: #fdeaea;
+  --error-border: #d64545;
+  --error-solid: #c53030;
+  --error-text: #9b2020;
+
+  --offline-bg: #eceef1;
+  --offline-border: #8a929c;
+  --offline-solid: #6b7280;
+  --offline-text: #4b5563;
+
+  --info-bg: #e3e9fb;
+  --info-text: #1e3a8a;
+  --info-solid: #2563eb;
+
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-pop: 0 12px 32px rgba(15, 23, 42, 0.18);
+}

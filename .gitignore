@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/coverage/
+*.tsbuildinfo
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.der
+*.key
+certs/
+deploy/certs/
+
+# Local data
+recordings/*.jsonl
+pgdata/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+*.stackdump
+.idea/
+.vscode/
+reports/
+.cache/
+build/

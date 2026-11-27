@@ -1,0 +1,116 @@
+# DMF Workpiece Tracking Dashboard — production stack.
+#   cp .env.example .env      # adjust POSTGRES_PASSWORD, OPCUA_ENDPOINT, ...
+#   docker compose up -d --build
+# Dashboard: http://<host>:${HTTP_PORT:-8080}
+#
+# Demo without the factory (mock OPC UA server, TEST/DEMO TOOLING):
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+
+name: dmf
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dmf}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-dmf}
+  DB_RUN_MIGRATIONS: ${DB_RUN_MIGRATIONS:-true}
+  DB_BUFFER_MAX: ${DB_BUFFER_MAX:-200000}
+  DB_RETRY_MAX_S: ${DB_RETRY_MAX_S:-30}
+  OPCUA_ENDPOINT: ${OPCUA_ENDPOINT:-opc.tcp://192.168.0.10:4840}
+  OPCUA_USERNAME: ${OPCUA_USERNAME:-}
+  OPCUA_PASSWORD: ${OPCUA_PASSWORD:-}
+  OPCUA_SECURITY: ${OPCUA_SECURITY:-}
+  OPCUA_TIMEOUT_S: ${OPCUA_TIMEOUT_S:-4}
+  OPCUA_PUBLISHING_INTERVAL_MS: ${OPCUA_PUBLISHING_INTERVAL_MS:-100}
+  OPCUA_SAMPLING_INTERVAL_MS: ${OPCUA_SAMPLING_INTERVAL_MS:-50}
+  OPCUA_QUEUE_SIZE: ${OPCUA_QUEUE_SIZE:-10}
+  OPCUA_SUBSCRIBE_SENSORS: ${OPCUA_SUBSCRIBE_SENSORS:-true}
+  OPCUA_RECONNECT_MIN_S: ${OPCUA_RECONNECT_MIN_S:-1}
+  OPCUA_RECONNECT_MAX_S: ${OPCUA_RECONNECT_MAX_S:-30}
+  OPCUA_VALIDATE_NODES: ${OPCUA_VALIDATE_NODES:-true}
+  OPCUA_ENABLED: ${OPCUA_ENABLED:-true}
+  EVENT_QUEUE_MAX: ${EVENT_QUEUE_MAX:-100000}
+  HANDOVER_WINDOW_S: ${HANDOVER_WINDOW_S:-8}
+  STUCK_AFTER_S: ${STUCK_AFTER_S:-120}
+  RECONCILE_MAX_HOPS: ${RECONCILE_MAX_HOPS:-6}
+  TICK_INTERVAL_S: ${TICK_INTERVAL_S:-1}
+  SNAPSHOT_INTERVAL_S: ${SNAPSHOT_INTERVAL_S:-10}
+  OFFLINE_DETECTION: ${OFFLINE_DETECTION:-off}
+  OFFLINE_AFTER_S: ${OFFLINE_AFTER_S:-60}
+  OFFLINE_CHECK_INTERVAL_S: ${OFFLINE_CHECK_INTERVAL_S:-10}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_FORMAT: ${LOG_FORMAT:-json}
+  TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+  SOURCE_LABEL: ${SOURCE_LABEL:-live}
+  CORS_ORIGINS: ${CORS_ORIGINS:-}
+  WS_MAX_RATE_HZ: ${WS_MAX_RATE_HZ:-4}
+  WS_MAX_CLIENTS: ${WS_MAX_CLIENTS:-50}
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+  EXPORT_MAX_DAYS: ${EXPORT_MAX_DAYS:-31}
+  HISTORY_PAGE_MAX: ${HISTORY_PAGE_MAX:-200}
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "20m", max-file: "5" }
+
+services:
+  db:
+    image: postgres:16.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dmf}
+      POSTGRES_USER: ${POSTGRES_USER:-dmf}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      TZ: UTC
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    security_opt: ["no-new-privileges:true"]
+    networks: [data]
+    logging: *logging
+
+  backend:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    image: dmf-backend:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    environment: *backend-env
+    volumes:
+      # plant model and node map are configuration: edit on the host, restart the backend
+      - ./config:/app/config:ro
+    depends_on:
+      db: { condition: service_healthy }
+    # time to flush buffered events and the tracker snapshot on "docker compose stop"
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    networks: [data, app]
+    logging: *logging
+
+  frontend:
+    build: { context: ., dockerfile: frontend/Dockerfile }
+    image: dmf-frontend:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    ports:
+      - "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-8080}:8080"
+    depends_on:
+      backend: { condition: service_healthy }
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx, /var/run]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    networks: [app]
+    logging: *logging
+
+volumes:
+  pgdata:
+
+networks:
+  # database traffic only; no route to the outside (the database cannot reach any network)
+  data:
+    internal: true
+  # frontend <-> backend, the published HTTP port, and the backend's outbound connection
+  # to the factory's OPC UA server (NAT via the host)
+  app:

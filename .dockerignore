@@ -1,0 +1,29 @@
+# keep the build context small; only backend/, frontend/, config/, database/, deploy/ are needed
+.git
+Project-description
+docs
+tests
+tools
+recordings
+**/node_modules
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+frontend/dist
+frontend/test-results
+frontend/playwright-report
+backend/tests
+.env
+.env.*
+*.stackdump
+# generated files
+**/*.egg-info
+frontend/coverage
+.coverage
+reports
+# OPC UA client certificates and keys: mount them at run time, never bake them into an image
+certs
+**/*.pem
+**/*.der
+**/*.key

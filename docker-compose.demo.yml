@@ -1,0 +1,34 @@
+# Demo / test override: replaces the factory with the MOCK OPC UA server (TEST/DEMO TOOLING).
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+# MOCK_MODE=demo (random movement) | idle | replay (MOCK_REPLAY_FILE=/recordings/<file>.jsonl)
+services:
+  mock:
+    image: dmf-backend:${IMAGE_TAG:-local}
+    build: { context: ., dockerfile: backend/Dockerfile }
+    command: ["python", "-m", "dmf_mock", "--endpoint", "opc.tcp://0.0.0.0:4840/"]
+    environment:
+      MOCK_MODE: ${MOCK_MODE:-demo}
+      MOCK_SPEED: ${MOCK_SPEED:-1}
+      MOCK_REPLAY_FILE: ${MOCK_REPLAY_FILE:-}
+      LOG_FORMAT: text
+    volumes:
+      - ./config:/app/config:ro
+      - ./recordings:/recordings:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 4840), 2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    networks: [app]
+
+  backend:
+    environment:
+      OPCUA_ENDPOINT: opc.tcp://mock:4840/
+      SOURCE_LABEL: ${SOURCE_LABEL_DEMO:-demo}
+    depends_on:
+      mock: { condition: service_healthy }

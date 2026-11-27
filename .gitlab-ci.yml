@@ -1,0 +1,183 @@
+# GitLab CI/CD for the DMF Workpiece Tracking Dashboard.
+# Stages: lint -> test -> e2e -> build. Nothing in CI talks to the real factory:
+# integration and e2e tests use the MOCK OPC UA server (backend/dmf_mock).
+# Python packages are installed with backend/constraints.txt (the exact versions the
+# project was tested with); npm uses package-lock.json via `npm ci`.
+
+stages: [lint, test, e2e, build]
+
+# One pipeline per change: merge-request pipelines for MRs, branch pipelines otherwise
+# (no duplicate branch + MR pipelines), plus tags.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  npm_config_cache: "$CI_PROJECT_DIR/.cache/npm"
+  POSTGRES_DB: dmf_test
+  POSTGRES_USER: dmf
+  POSTGRES_PASSWORD: dmf-ci-only
+  TEST_DATABASE_URL: postgresql+asyncpg://dmf:dmf-ci-only@postgres:5432/dmf_test
+
+default:
+  interruptible: true
+
+.python:
+  image: python:3.12-slim-bookworm
+  cache:
+    key: pip-${CI_COMMIT_REF_SLUG}
+    paths: [.cache/pip]
+  before_script:
+    - cd backend
+    - python -m venv .venv && . .venv/bin/activate
+    - pip install -c constraints.txt -e ".[dev]"
+
+.node:
+  image: node:22.11-bookworm-slim
+  cache:
+    key:
+      files: [frontend/package-lock.json]
+    paths: [.cache/npm]
+  before_script:
+    - cd frontend
+    - npm ci --no-audit --no-fund
+
+backend:lint:
+  extends: .python
+  stage: lint
+  script:
+    - ruff check .
+    - ruff format --check .
+
+frontend:lint:
+  extends: .node
+  stage: lint
+  script:
+    - npm run typecheck
+    - npm run lint
+
+backend:test:
+  extends: .python
+  stage: test
+  services:
+    - name: postgres:16.6-alpine
+      alias: postgres
+  script:
+    # unit + integration (mock OPC UA server on localhost, real PostgreSQL service)
+    - pytest -q --junitxml=../reports/backend-junit.xml --cov --cov-report=term --cov-report=xml:../reports/backend-coverage.xml
+    # schema and models must not drift; migrations must also downgrade cleanly
+    - cd ../database
+    - DATABASE_URL=$TEST_DATABASE_URL alembic upgrade head
+    - DATABASE_URL=$TEST_DATABASE_URL alembic check
+    - DATABASE_URL=$TEST_DATABASE_URL alembic downgrade base
+    - DATABASE_URL=$TEST_DATABASE_URL alembic upgrade head
+  coverage: '/^TOTAL.*\s(\d+(?:\.\d+)?)%/'
+  artifacts:
+    when: always
+    reports:
+      junit: reports/backend-junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: reports/backend-coverage.xml
+
+frontend:test:
+  extends: .node
+  stage: test
+  script:
+    - npx vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=cobertura --coverage.reportsDirectory=../reports/frontend-coverage --reporter=default --reporter=junit --outputFile.junit=../reports/frontend-junit.xml
+    - npm run build
+  coverage: '/^Lines\s*:\s*(\d+(?:\.\d+)?)%/'
+  artifacts:
+    when: always
+    reports:
+      junit: reports/frontend-junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: reports/frontend-coverage/cobertura-coverage.xml
+    paths: [frontend/dist]
+    expire_in: 1 day
+
+# Known advisories are reported but do not block (they are reviewed and documented in
+# docs/09-final-project-audit.md); a new advisory shows up as a warning in the pipeline.
+deps:audit:
+  stage: test
+  image: python:3.12-slim-bookworm
+  allow_failure: true
+  needs: []
+  script:
+    - python -m venv /tmp/audit && . /tmp/audit/bin/activate
+    - pip install -q pip-audit==2.7.3
+    - pip-audit -r backend/constraints.txt --progress-spinner off
+    - apt-get update -qq && apt-get install -y -qq nodejs npm > /dev/null
+    - cd frontend && npm audit --omit=dev --audit-level=moderate
+
+e2e:
+  stage: e2e
+  # Playwright's image (Ubuntu 24.04 "noble") matches @playwright/test 1.49.1, ships the
+  # browsers and a current Node.js; Ubuntu 24.04 provides Python 3.12.
+  image: mcr.microsoft.com/playwright:v1.49.1-noble
+  needs: [frontend:test]
+  services:
+    - name: postgres:16.6-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: dmf_e2e
+    DATABASE_URL: postgresql+asyncpg://dmf:dmf-ci-only@postgres:5432/dmf_e2e
+    OPCUA_ENDPOINT: opc.tcp://127.0.0.1:48420/
+    SOURCE_LABEL: demo
+    STUCK_AFTER_S: "6"
+    HANDOVER_WINDOW_S: "3"
+    OPCUA_RECONNECT_MAX_S: "3"
+    E2E_BASE_URL: http://127.0.0.1:4173
+    MOCK_CONTROL_URL: http://127.0.0.1:8765
+  script:
+    - apt-get update -qq && apt-get install -y -qq python3.12-venv curl > /dev/null
+    - cd backend && python3.12 -m venv .venv && . .venv/bin/activate && pip install -q -c constraints.txt -e . && cd ..
+    - (cd backend && python -m dmf_mock --mode idle --endpoint $OPCUA_ENDPOINT --control-port 8765 > ../mock.log 2>&1 &)
+    - (cd backend && uvicorn dmf.main:app --host 127.0.0.1 --port 8000 > ../backend.log 2>&1 &)
+    - cd frontend && npm ci --no-audit --no-fund
+    - (npx vite preview --port 4173 --strictPort --host 127.0.0.1 > ../preview.log 2>&1 &)
+    - for i in $(seq 1 60); do curl -sf $E2E_BASE_URL/api/ready | grep -q connected && break; sleep 1; done
+    - curl -sf $E2E_BASE_URL/api/ready
+    - npx playwright test
+  artifacts:
+    when: always
+    paths: [frontend/playwright-report, frontend/test-results, mock.log, backend.log, preview.log]
+    expire_in: 1 week
+
+.docker:
+  stage: build
+  image: docker:27.3
+  services: [docker:27.3-dind]
+  variables:
+    # TLS between the job and the docker:dind service (the dind default since Docker 19.03)
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
+  before_script:
+    - for i in $(seq 1 30); do docker info > /dev/null 2>&1 && break; sleep 1; done
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+
+build:images:
+  extends: .docker
+  needs: [backend:test, frontend:test, e2e]
+  script:
+    - docker build -f backend/Dockerfile -t "$CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHORT_SHA" .
+    - docker build -f frontend/Dockerfile -t "$CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHORT_SHA" .
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ] || [ -n "$CI_COMMIT_TAG" ]; then
+        TAG="${CI_COMMIT_TAG:-latest}"
+        for img in backend frontend; do
+          docker push "$CI_REGISTRY_IMAGE/$img:$CI_COMMIT_SHORT_SHA"
+          docker tag "$CI_REGISTRY_IMAGE/$img:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE/$img:$TAG"
+          docker push "$CI_REGISTRY_IMAGE/$img:$TAG"
+        done
+      else
+        echo "merge request / feature branch: images built, not pushed"
+      fi
