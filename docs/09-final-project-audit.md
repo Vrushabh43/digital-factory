@@ -4,7 +4,9 @@ Audit of the complete repository against the original project description, carri
 2026-11-26/27. Every issue found was fixed where it could be fixed and verified in this environment;
 what could not be verified is said so explicitly. **Nothing in this report was tested against the
 real factory, and Docker and GitLab CI were not executed** (no Docker on the audit machine, no GitLab
-access, pushing not authorised). The scores in §13 are an **internal assessment**; the project
+access). After the audit the code was committed and pushed to GitHub
+(`github.com/Vrushabh43/digital-factory`, branch `main`, 2026-11-27), where `.gitlab-ci.yml` does
+not run. The scores in §13 are an **internal assessment**; the project
 description contains no official marking criteria.
 
 Terms used for evidence:
@@ -131,7 +133,7 @@ reason). No requirement is classified *incorrect* or *missing* after the audit.
 | R27 | `api/ws.py` | `test_api` WebSocket, `test_platform_robustness` (1013, Origin, binary), endurance run (§12) | Verified | B-13, A-01 |
 | R28 | `services/export.py`, `/api/history/export` | `test_export` (every CSV cell, PDF content), e2e test 4 | Verified | B-02, B-15, A-03 |
 | R29 | `docker-compose.yml`, `docker-compose.demo.yml`, Dockerfiles | static review only | **Partially verified — never built or run** | A-01, A-11 |
-| R30 | `.gitlab-ci.yml`; local repository initialised, no commits | CI schema validation, every command run locally | **Partially verified — no remote, pipeline never run** | — |
+| R30 | `.gitlab-ci.yml`; repository on GitHub (`Vrushabh43/digital-factory`, `main`) | CI schema validation, every command run locally | **Partially verified — on GitHub, not yet on GitLab; pipeline never run** | — |
 | R31 | `docs/08-lab-validation.md`, `dmf.cli.verify/record/replay_check` | `test_cli_tools` | Requires real factory validation | D-05 |
 | C1 | node map `verification: derived`, UI footer note, docs/01 §1.4, docs/08 | review | Verified (documented) | T-05, D-01 |
 | C2 | see R18 | see R18 | Verified (code + mock) | — |
@@ -362,8 +364,8 @@ A-10 (pytest advisory, test-only).
 
 ## 8 · Modified files
 
-Files changed or added during the audit (by modification time; the repository has no commits, so no
-diff exists). `Project-description/` is not among them.
+Files changed or added during the audit (by modification time; the audit took place before the
+first commit, so there is no diff). `Project-description/` is not among them.
 
 Backend code was compared with a copy taken before the fixes (after normalising both with
 `ruff format`); the other areas are listed by modification time.
@@ -576,7 +578,7 @@ The remaining gap to 100 is mostly proof that this environment cannot provide (p
 | No access to the real factory (and it must not be connected without the lab) | Node map, wiring (incl. 14→15), timings, sampling, offline behaviour unverified | docs/08 with lab staff |
 | No Docker on the audit machine | Images, Compose stack, health checks, restart persistence, nginx config never executed | §16 on a machine with Docker |
 | nginx binary not available (download not allowed) | `nginx -t` not run; A-01 and the CSP are static | `docker compose build frontend` runs the config in the real image |
-| No GitLab remote; committing/pushing not authorised | Pipeline never run | §17 after you authorise a push |
+| No GitLab project (the code is on GitHub, which does not run `.gitlab-ci.yml`) | Pipeline never run | Push to a GitLab project (§17) |
 | Python 3.12 not installed locally | Tests ran on 3.13.2; image and CI use 3.12 (constraints resolved for Linux/py3.12) | First CI run |
 | Final full test runs on the last two small changes not completed (machine out of memory) | Backend suite stopped at 177/198 (0 failures); frontend suite, build and e2e not re-run after A-13 and the 422 wording | Re-run once (§11.5) or first CI run |
 | Read-only OPC UA user must be created by the lab's PLC administrator | Server-side enforcement missing | docs/08 §8.1 |
@@ -626,7 +628,8 @@ Status: **pipeline configuration statically reviewed** (validated against the Gi
 trip, Vitest with the same coverage flags, build, Playwright, pip-audit, npm audit),
 **no pipeline has run on GitLab**.
 
-- [ ] Push the repository (needs your authorisation; nothing was committed or pushed)
+- [x] Repository committed and pushed to GitHub (`main`, 2026-11-27)
+- [ ] Push it to a GitLab project as well (the project description asks for GitLab; GitHub does not run `.gitlab-ci.yml`)
 - [ ] Pipeline on a feature branch: `lint`, `test`, `e2e` green; `build:images` builds but does not push
 - [ ] A deliberately failing test makes `backend:test` fail and the later stages do not run
 - [ ] Coverage values appear in the merge request (regexes checked locally: frontend `Lines : 95.29%`)
